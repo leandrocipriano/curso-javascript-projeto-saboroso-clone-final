@@ -1,261 +1,159 @@
-module.exports = (io) => {
+var conn = require('./../inc/db');
+var express = require('express');
+var menus = require('./../inc/menus');
+var router = express.Router();
+var reservations = require('./../inc/resevations');
+var contacts = require('./../inc/contacts');
 
-  let conn = require('./../inc/db');
-  let express = require('express');
-  let formidable = require('formidable');
-  let router = express.Router();
 
-  let defaults = {
-    title: 'Restaurante Saboroso!',
-    headerIndex: false
-  };
+/* GET home page. */
+router.get('/', function(req, res, next) {
 
-  let defaultsReservation = {
-    title: 'Reserva - Restaurante Saboroso!',
-    header: {
-      background: 'images/img_bg_2.jpg',
-      title: 'Reserve uma Mesa!'
-    },
-    body: {}
-  };
+  menus.getMenus().then(results =>{
+    //Render é o método que vai mesclar os dados com o template js
+    res.render('index', {
+      title: 'Restaurante Saboroso!',
+      menus: results,
+      isHome: true
+    })
 
-  let defaultsContact = {
-    title: 'Contato - Restaurante Saboroso!',
-    header: {
-      background: 'images/img_bg_3.jpg',
-      title: 'Diga um oi!'
-    },
-    body: {}
-  };
+  }); 
+  //res.render('index', { title: 'Restaurante Saboroso!' });
 
-  router.get('/', (req, res, next) => {
+});
 
-    conn.query(
-      "SELECT * FROM tb_menus ORDER BY title",
-      (err, results, fields) => {
+router.get('/reservations', function(req, res, next){
 
-        res.render('index', Object.assign({}, defaults, {
-          title: 'Restaurante Saboroso!',
-          menus: results,
-          headerIndex: true
-        }));
-
-      }
-    );
-
+  menus.getMenus().then(results => {    
+    reservations.render(req, res, results);
   });
+  
+});
 
-  router.get('/contact', (req, res, next) => {
+router.get('/contacts', function(req, res, next){
 
-    res.render('contact', Object.assign({}, defaults, defaultsContact));
-
+  menus.getMenus().then(results =>{
+    contacts.render(req, res, results);
   });
+  
+});
 
-  router.post('/contact', (req, res, next) => {
+router.post('/contacts', function(req, res, next){
 
-    let render = (error, success) => {
+  if(!req.body.name){
+    menus.getMenus().then(results => {    
+      contacts.render(req, res, results, "Digite o nome");
+    });
+  } else if (!req.body.email){
+    menus.getMenus().then(results => {    
+      contacts.render(req, res, results, "Digite o e-mail");
+    });
+  } else if (!req.body.message){
+    menus.getMenus().then(results => {    
+      contacts.render(req, res, results, "Digite a sua mensagem");
+    });
+  } else {
+    //res.send(req.body);
+    contacts.save(req.body).then(results => {
+      menus.getMenus().then(menusItens => {   
+        req.body = {};
 
-      res.render('contact', Object.assign({}, defaults, defaultsContact, {
-        body: req.body,
-        success,
-        error
-      }));
-
-    };
-
-    if (!req.body.name) {
-
-      render('Preencha o campo Nome.');
-
-    } else if (!req.body.email) {
-
-      render('Preencha o campo E-mail.');
-
-    } else if (!req.body.message) {
-
-      render('Preencha o campo Mensagem.');
-
-    } else {
-
-      conn.query(
-        "INSERT INTO tb_contacts (name, email, message) VALUES(?, ?, ?)",
-        [
-          req.body.name,
-          req.body.email,
-          req.body.message
-        ],
-        (err, results) => {
-
-          if (err) {
-            render(err);
-          } else {
-
-            io.emit('reservations update', req.body);
-
-            req.body = {};
-
-            render(null, 'Contato enviado com sucesso!');
-
-          }
-
-        }
-      );
-
-    }
-
-  });
-
-  router.get('/menu', (req, res, next) => {
-
-    conn.query(
-      "SELECT * FROM tb_menus ORDER BY title",
-      (err, results, fields) => {
-
-        res.render('menu', Object.assign({}, defaults, {
-          title: 'Menu - Restaurante Saboroso!',
-          header: {
-            background: 'images/img_bg_1.jpg',
-            title: 'Saboreie nosso menu!'
-          },
-          menus: results
-        }));
-
+        contacts.render(req, res, menusItens, null, "Mensagem enviada com sucesso. Em breve, entraremos em contato!" );
+      
       });
+    }).catch(err => {
 
-  });
+      menus.getMenus().then(menusItens => {   
+        contacts.render(req, res, menusItens, err.message);
+      });
+      
+    });
+  }
 
-  router.get('/reservation', (req, res, next) => {
+});
 
-    res.render('reservation', Object.assign({}, defaults, defaultsReservation));
+router.get('/menus', function(req, res, next){
 
-  });
+  menus.getMenus().then(results => {
 
-  router.post('/reservation', (req, res, next) => {
-
-    let render = (error, success) => {
-
-      res.render('reservation', Object.assign({}, defaults, defaultsReservation, {
-        body: req.body,
-        success,
-        error
-      }));
-
-    };
-
-    if (!req.body.name) {
-
-      render('Preencha o campo Nome.');
-
-    } else if (!req.body.email) {
-
-      render('Preencha o campo E-mail.');
-
-    } else if (!req.body.people) {
-
-      render('Selecione a quantidade de pessoas.');
-
-    } else if (!req.body.date.trim()) {
-
-      render('Selecione o dia da reserva.');
-
-    } else if (!req.body.time.trim()) {
-
-      render('Selecione a hora da reserva.');
-
-    } else {
-
-      let date = req.body.date.split('/');
-      date = `${date[2]}-${date[1]}-${date[0]}`;
-      req.body.date = date;
-
-      conn.query(
-        "INSERT INTO tb_reservations (name, email, people, date, time) VALUES(?, ?, ?, ?, ?)",
-        [
-          req.body.name,
-          req.body.email,
-          req.body.people,
-          req.body.date,
-          req.body.time
-        ],
-        (err, results) => {
-
-          if (err) {
-            render(err);
-          } else {
-
-            io.emit('reservations update', req.body);
-
-            req.body = {};
-
-            render(null, 'Reserva realizada com sucesso!');
-
-          }
-
-        }
-      );
-
-    }
-
-  });
-
-  router.post('/subscribe', (req, res, next) => {
-
-    let form = new formidable.IncomingForm();
-
-    form.parse(req, (err, fields, files) => {
-
-      if (!fields.email) {
-
-        res.status(400);
-        res.send({
-          error: 'Preencha o campo e-mail.'
-        });
-
-      } else {
-
-        conn.query(
-          "INSERT INTO tb_emails (email) VALUES(?)",
-          [
-            fields.email
-          ],
-          (err, results) => {
-
-            if (err) {
-
-              res.status(400);
-              res.send({
-                error: err
-              });
-
-            } else {
-
-              io.emit('reservations update', fields);
-
-              res.send(results);
-
-            }
-
-          }
-        );
-
-      }
-
+    res.render('menus', {
+      title: 'Menus - Restaurante Saboroso!',
+      background:'images/img_bg_1.jpg',
+      greeting:'Saboreie nosso menu!',
+      menus: results,
+      isHome: false
     });
 
   });
+    
+});
 
-  router.get('/services', (req, res, next) => {
+router.get('/reservations', function(req, res, next){
 
-    res.render('services', Object.assign({}, defaults, {
-      title: 'Serviço - Restaurante Saboroso!',
-      header: {
-        background: 'images/img_bg_1.jpg',
-        title: 'É um prazer poder servir!'
-      }
-    }));
+  menus.getMenus().then(results => {    
+    reservations.render(req, res, results);
+  });
+  
+});
+
+router.post('/reservations', function(req, res, next){
+
+  if(!req.body.name){
+    menus.getMenus().then(results => {    
+      reservations.render(req, res, results, "Digite o nome");
+    });
+  } else if (!req.body.email){
+    menus.getMenus().then(results => {    
+      reservations.render(req, res, results, "Digite o e-mail");
+    });
+  } else if (!req.body.people){
+    menus.getMenus().then(results => {    
+      reservations.render(req, res, results, "Selecione o número de pessoas");
+    });
+  } else if (!req.body.date){
+    menus.getMenus().then(results => {    
+      reservations.render(req, res, results, "Informe a data do evento");
+    });
+  } else if (!req.body.time){
+    menus.getMenus().then(results => {    
+      reservations.render(req, res, results, "Informe a hora do evento");
+    });
+  } else {
+    //res.send(req.body);
+    reservations.save(req.body).then(results => {
+      menus.getMenus().then(menusItens => {   
+        req.body = {};
+
+        reservations.render(req, res, menusItens, null, "Reserva realizada com sucesso!" );
+      
+      });
+    }).catch(err => {
+
+      menus.getMenus().then(menusItens => {   
+        reservations.render(req, res, menusItens, err.message);
+      });
+      
+    });
+  }
+
+  
+  
+});
+
+router.get('/services', function(req, res, next){
+
+  menus.getMenus().then(results => {
+
+  res.render('services', {
+    title: 'Serviços - Restaurante Saboroso!',
+    background:'images/img_bg_1.jpg',
+    greeting:'É um prazer poder servir!',
+      menus: results,
+      isHome: false
+    });
 
   });
+  
+});
 
-  return router;
-
-};
+module.exports = router;
